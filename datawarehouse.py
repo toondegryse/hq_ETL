@@ -43,45 +43,57 @@ def csvToMySQL():
       connection.close()
 
 startTime = datetime.now()
-# csvToMySQL()
+csvToMySQL()
 
 
-# create schema bi_date .. MySQL does not really offer this? Nope so I create a db
+# create schema bi_date
 
-engine.execute("CREATE DATABASE IF NOT EXISTS bi_date") 
+engine.execute("CREATE DATABASE IF NOT EXISTS bi_date;") 
 engine.execute("USE bi_date") 
 
 # take out the invalid offers
 offerpd = offerpd.loc[offerpd['valid_offer_flag'] == 1]
+offerpd.drop(['source_system_code','valid_offer_flag','checkin_date','checkout_date','available_cnt','id'],inplace=True,axis=1)
+offerpd['insert_date'] = pd.to_datetime(offerpd['insert_datetime']).dt.date
+offerpd['insert_time'] = pd.to_datetime(offerpd['insert_datetime']).dt.time
 
 # rename rates id column to hotel_id in ratespd
 ncol = ratespd.columns.values
-ncol[0] = 'hotel_id'
+ncol[1] = 'currency_id'    # prim_currency_id
+ncol[3] = 'insert_date'
 ratespd.columns = ncol
-mpd = pd.merge(ratespd,offerpd,on='hotel_id')
+
+# only to USD
+ratespd = ratespd[ratespd['scnd_currency_id'] == 1]   
+# force datatypes
+ratespd.currency_id = ratespd.currency_id.astype(float)
+ratespd.insert_date = pd.to_datetime(ratespd.insert_date)
+offerpd.insert_date = pd.to_datetime(offerpd.insert_date)
+
+mpd = pd.merge(offerpd,ratespd,how='left',on=['insert_date','currency_id'])
+
+# show specific day
+# mpd.insert_date = mpd.insert_date.astype(str)
+# mpd = mpd.set_index(['insert_date'])
+# mpd = mpd.loc['2015-10-26']
 
 # rename id column to currency_id in currpd
 ncol = currpd.columns.values
 ncol[0] = 'currency_id'
 currpd.columns = ncol
-mpd = pd.merge(mpd,currpd,on='currency_id')
+currpd.currency_id = currpd.currency_id.astype(float)
+mpd = pd.merge(mpd,currpd,how='left',on=['currency_id'])
 
 # price in USD
 mpd['price_usd'] = mpd['sellings_price'] * mpd['currency_rate']
+# drop unnecessary columns
+mpd.drop(['currency_id','insert_datetime','insert_time','scnd_currency_id','currency_rate','name'],inplace=True,axis=1)
+# reorder columns to specifications
+mpd = DataFrame(mpd, columns=['id', 'hotel_id','price_usd', 'sellings_price', 'code', 'breakfast_included_flag','offer_valid_from','offer_valid_to'])
+print mpd.head()
 
 # create valid_offers
-mpd['price_usd'] = mpd['sellings_price'] * mpd['currency_rate']
-mpd = mpd.drop(['prim_currency_id', 'scnd_currency_id','date', 'available_cnt', 'currency_rate', 'source_system_code','checkin_date','checkout_date','valid_offer_flag','insert_datetime','name'], axis=1)
-mpd = mpd[mpd['code'] != 'USD']
-print mpd.head()
-# mpd.to_sql('valid_offers', engine, if_exists='replace',index=False)
 
 # create table 'hotel_offers'
-
-
-# get hotel_id, date and hour
-offerspd = offerpd[['hotel_id','offer_valid_from','offer_valid_to']]
-offerspd['date'] = offerspd['offer_valid_from'].value.str.split(" ").stack().str.strip().reset_index(level=1, drop=True)
-print offerspd.head()
 
 connection.close()
