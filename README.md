@@ -1,2 +1,1 @@
-ETL on an online hotel booking platform
-
+ETL for a booking platform
